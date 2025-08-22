@@ -24,7 +24,7 @@ def format_clipboard_output(step, level, words):
     start_rank = ((step - 1) * 100) + ((level - 1) * 20) + 1
     end_rank = start_rank + 19
     header = f"Step {step} - Level {level} (Ranks {start_rank}–{end_rank})"
-    word_list = ", ".join(words)
+    word_list = "\n".join(words)
     return f"{header}\n{word_list}"
 
 def main():
