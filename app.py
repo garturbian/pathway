@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import requests
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import os
@@ -8,6 +9,8 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 DATABASE = 'pathway.db'
+OLLAMA_URL = 'http://localhost:11434/api/generate'  # Default Ollama API endpoint
+OLLAMA_MODEL = 'qwen2.5'  # Changed to qwen2.5 model
 
 def get_db_connection():
     conn = sqlite3.connect(DATABASE)
@@ -181,6 +184,41 @@ def learning_learning_word(student_name, word_id):
     
     return jsonify({'message': 'Word marked as learning'})
 
+@app.route('/api/students', methods=['GET'])
+def get_students():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT DISTINCT student_name FROM StudentProgress
+        UNION
+        SELECT DISTINCT student_name FROM StudentWords
+        UNION
+        SELECT DISTINCT student_name FROM StudentSpecialWords
+        ORDER BY student_name
+    """)
+    
+    students = [row['student_name'] for row in cursor.fetchall()]
+    conn.close()
+    
+    return jsonify({'students': students})
+
+@app.route('/api/student/<student_name>', methods=['DELETE'])
+def delete_student(student_name):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Delete all data associated with the student
+    cursor.execute("DELETE FROM StudentWords WHERE student_name = ?", (student_name,))
+    cursor.execute("DELETE FROM StudentSpecialWords WHERE student_name = ?", (student_name,))
+    cursor.execute("DELETE FROM StudentProgress WHERE student_name = ?", (student_name,))
+    cursor.execute("DELETE FROM Rewards WHERE student_name = ?", (student_name,))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'message': f'Student "{student_name}" and all associated data have been deleted'})
+
 @app.route('/api/student/<student_name>/progress', methods=['GET'])
 def get_student_progress(student_name):
     conn = get_db_connection()
@@ -329,6 +367,125 @@ def add_special_word(student_name):
     
     return jsonify({'message': f'Special word "{word}" added'})
 
+@app.route('/api/student/<student_name>/special_words/batch', methods=['POST'])
+def add_special_words_batch(student_name):
+    data = request.get_json()
+    words = data.get('words', [])
+    notes = data.get('notes', '')
+    force_add = data.get('force_add', False)  # New parameter to force add existing words
+    
+    if not words or not isinstance(words, list):
+        return jsonify({'error': 'Words list is required'}), 400
+    
+    results = {
+        'added': [],
+        'existing': [],  # New category for existing words
+        'errors': []
+    }
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    for word in words:
+        try:
+            if not word:
+                results['errors'].append({'word': word, 'error': 'Word is required'})
+                continue
+                
+            # First check if the word already exists in the main Words table
+            cursor.execute("SELECT word, step, level FROM Words WHERE word = ?", (word,))
+            existing_word = cursor.fetchone()
+            
+            if existing_word:
+                existing_info = {
+                    'word': word,
+                    'step': existing_word['step'],
+                    'level': existing_word['level']
+                }
+                
+                # If force_add is True, we'll add it as a special word anyway
+                if force_add:
+                    # Insert special word even though it exists in main list
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO SpecialWords (word, notes)
+                        VALUES (?, ?)
+                    """, (word, notes))
+                    
+                    # Get the special word ID
+                    cursor.execute("SELECT id FROM SpecialWords WHERE word = ?", (word,))
+                    special_word_row = cursor.fetchone()
+                    
+                    if not special_word_row:
+                        results['errors'].append({'word': word, 'error': 'Failed to add special word'})
+                        continue
+                    
+                    special_word_id = special_word_row['id']
+                    
+                    # Add to student's special words
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO StudentSpecialWords (student_name, special_word_id, status)
+                        VALUES (?, ?, 'learning')
+                    """, (student_name, special_word_id))
+                    
+                    # Add to rewards
+                    cursor.execute("""
+                        INSERT INTO Rewards (student_name, special_word_id, reward_type, notes)
+                        VALUES (?, ?, 'special_word_added', 'Added special word')
+                    """, (student_name, special_word_id))
+                    
+                    results['added'].append({'word': word, 'id': special_word_id, 'existing': True})
+                else:
+                    # Just inform user about existing word
+                    results['existing'].append(existing_info)
+                continue
+            
+            # Insert special word if it doesn't exist in main list
+            cursor.execute("""
+                INSERT OR IGNORE INTO SpecialWords (word, notes)
+                VALUES (?, ?)
+            """, (word, notes))
+            
+            # Get the special word ID
+            cursor.execute("SELECT id FROM SpecialWords WHERE word = ?", (word,))
+            special_word_row = cursor.fetchone()
+            
+            if not special_word_row:
+                results['errors'].append({'word': word, 'error': 'Failed to add special word'})
+                continue
+            
+            special_word_id = special_word_row['id']
+            
+            # Add to student's special words
+            cursor.execute("""
+                INSERT OR IGNORE INTO StudentSpecialWords (student_name, special_word_id, status)
+                VALUES (?, ?, 'learning')
+            """, (student_name, special_word_id))
+            
+            # Add to rewards
+            cursor.execute("""
+                INSERT INTO Rewards (student_name, special_word_id, reward_type, notes)
+                VALUES (?, ?, 'special_word_added', 'Added special word')
+            """, (student_name, special_word_id))
+            
+            results['added'].append({'word': word, 'id': special_word_id})
+            
+        except Exception as e:
+            results['errors'].append({'word': word, 'error': str(e)})
+    
+    conn.commit()
+    conn.close()
+    
+    message = f"Added {len(results['added'])} special word(s)"
+    if results['existing']:
+        message += f", {len(results['existing'])} word(s) already exist in main list"
+    if results['errors']:
+        message += f", {len(results['errors'])} error(s)"
+    
+    return jsonify({
+        'message': message,
+        'results': results
+    })
+
 @app.route('/api/student/<student_name>/special_words/<int:special_word_id>', methods=['DELETE'])
 def remove_special_word(student_name, special_word_id):
     conn = get_db_connection()
@@ -383,7 +540,7 @@ def get_rewards(student_name):
     
     return jsonify({'rewards': rewards})
 
-@app.route('/api/special_words')
+@app.route('/api/student/<student_name>/special_words')
 def get_special_words_list():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -397,6 +554,134 @@ def get_special_words_list():
     conn.close()
     
     return jsonify({'words': words})
+
+@app.route('/api/student/<student_name>/generate_story', methods=['POST'])
+def generate_story(student_name):
+    # Get the learning words for the student
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get regular learning words
+    cursor.execute("""
+        SELECT w.word
+        FROM StudentWords sw
+        JOIN Words w ON sw.word_id = w.id
+        WHERE sw.student_name = ? AND sw.status = 'learning'
+        ORDER BY w.step, w.level, w.rank
+    """, (student_name,))
+    
+    regular_words = [row['word'] for row in cursor.fetchall()]
+    
+    # Get special learning words
+    cursor.execute("""
+        SELECT sp.word
+        FROM StudentSpecialWords sw
+        JOIN SpecialWords sp ON sw.special_word_id = sp.id
+        WHERE sw.student_name = ? AND sw.status = 'learning'
+        ORDER BY sw.added_date
+    """, (student_name,))
+    
+    special_words = [row['word'] for row in cursor.fetchall()]
+    
+    conn.close()
+    
+    # Combine all learning words
+    all_words = regular_words + special_words
+    
+    if not all_words:
+        return jsonify({'error': 'No learning words found for this student'}), 400
+    
+    # Create the prompt for Ollama
+    words_list = ', '.join(all_words)
+    prompt = f"Write a 200 word story that will be easy for an A2 level ESL learner to understand. Students at this level have a very limited vocabulary. Use these words in the story: {words_list}. Include the word list."
+    
+    # Prepare the request to Ollama
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False
+    }
+    
+    try:
+        # Send request to Ollama
+        response = requests.post(OLLAMA_URL, json=payload, timeout=60)  # 60 second timeout
+        response.raise_for_status()
+        
+        # Parse the response
+        result = response.json()
+        story = result.get('response', 'Sorry, I could not generate a story.')
+        
+        return jsonify({'story': story})
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Request to Ollama timed out. Please check if Ollama is running and try again.'}), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Error connecting to Ollama: {str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Error generating story: {str(e)}'}), 500
+
+@app.route('/api/student/<student_name>/generate_questions', methods=['POST'])
+def generate_questions(student_name):
+    # Get the learning words for the student
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get regular learning words
+    cursor.execute("""
+        SELECT w.word
+        FROM StudentWords sw
+        JOIN Words w ON sw.word_id = w.id
+        WHERE sw.student_name = ? AND sw.status = 'learning'
+        ORDER BY w.step, w.level, w.rank
+    """, (student_name,))
+    
+    regular_words = [row['word'] for row in cursor.fetchall()]
+    
+    # Get special learning words
+    cursor.execute("""
+        SELECT sp.word
+        FROM StudentSpecialWords sw
+        JOIN SpecialWords sp ON sw.special_word_id = sp.id
+        WHERE sw.student_name = ? AND sw.status = 'learning'
+        ORDER BY sw.added_date
+    """, (student_name,))
+    
+    special_words = [row['word'] for row in cursor.fetchall()]
+    
+    conn.close()
+    
+    # Combine all learning words
+    all_words = regular_words + special_words
+    
+    if not all_words:
+        return jsonify({'error': 'No learning words found for this student'}), 400
+    
+    # Create the prompt for Ollama
+    words_list = ', '.join(all_words)
+    prompt = f"Create multiple choice questions to test a learner's understanding of the following words. The student is an A2 level ESL learner with a limited vocabulary. Restrict your word choice to make it easy for an A2 level ESL learner to understand. Create one question for EACH word in the list. Number the questions sequentially from 1 to {len(all_words)}. In each question, the student will select which word best fills the blank. Provide exactly 4 choices: one correct answer and three distractors (incorrect options). Do NOT indicate the correct answer in the quiz. Use simple numbering like '1:' instead of 'Question 1:'. Do NOT use labels like 'Answer Choices:'. Format the options as 'A) word', 'B) word', 'C) word', 'D) word'. Put the answers in a separate section at the end of your response. Do NOT use # or * in the response. Test these words: {words_list}"
+    
+    # Prepare the request to Ollama
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False
+    }
+    
+    try:
+        # Send request to Ollama
+        response = requests.post(OLLAMA_URL, json=payload, timeout=60)  # 60 second timeout
+        response.raise_for_status()
+        
+        # Parse the response
+        result = response.json()
+        questions = result.get('response', 'Sorry, I could not generate questions.')
+        
+        return jsonify({'questions': questions})
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Request to Ollama timed out. Please check if Ollama is running and try again.'}), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Error connecting to Ollama: {str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Error generating questions: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # Check if database exists, if not, create it

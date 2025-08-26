@@ -300,6 +300,14 @@
         .word-info {
             flex: 2;
             min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .word-info span {
+            font-size: 14px;
+            color: #6c757d;
         }
         
         .word-actions {
@@ -495,6 +503,32 @@
             border: 1px solid #f5c6cb;
         }
 
+        .student-buttons {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .student-button {
+            padding: 8px 16px;
+            background-color: #e9ecef;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .student-button:hover {
+            background-color: #d1d5db;
+        }
+        
+        .student-button.active {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
         .notification.info {
             background-color: #d1ecf1;
             color: #0c5460;
@@ -557,8 +591,10 @@
                     <span id="studentDisplayName"></span>
                     <span id="currentPosition">Current Position: Step 1, Level 1</span>
                     <button id="editPosition" class="btn btn-primary">Edit Position</button>
+                    <button id="deleteStudent" class="btn btn-danger" style="display: none;">Delete Student</button>
                 </div>
             </div>
+            <div id="studentButtons" class="student-buttons"></div>
             <div id="notification" class="notification"></div>
         </header>
 
@@ -594,20 +630,26 @@
                 <div class="card">
                     <h3>Special Words Management</h3>
                     <div class="form-group">
-                        <label for="newSpecialWord">Add New Special Word:</label>
-                        <input type="text" id="newSpecialWord" placeholder="Enter special word">
+                        <label for="newSpecialWord">Add New Special Word(s):</label>
+                        <textarea id="newSpecialWord" placeholder="Enter special word(s) - separate multiple words with commas, spaces, or new lines. You can add words that already exist in the main 2800-word list if needed." rows="3"></textarea>
                     </div>
                     <div class="form-group">
                         <label for="specialWordNotes">Notes (Optional):</label>
-                        <textarea id="specialWordNotes" placeholder="Additional information about this word"></textarea>
+                        <textarea id="specialWordNotes" placeholder="Additional information about these words"></textarea>
                     </div>
-                    <button id="addSpecialWord" class="btn btn-primary">Add Special Word</button>
+                    <button id="addSpecialWord" class="btn btn-primary">Add Special Word(s)</button>
+                    <p><small>If a word already exists in the main 2800-word list, you'll be notified of its step and level and given the option to add it as a special word anyway.</small></p>
                 </div>
                 
-                <div class="card" style="grid-column: span 2;">
+                <div class="card">
                     <div class="header-row">
                         <h3>Current Learning List</h3>
-                        <button id="copyListBtn" class="btn btn-primary">Copy List</button>
+                        <div>
+                            <button id="copyListBtn" class="btn btn-primary">Copy List</button>
+                            <button id="generateStoryBtn" class="btn btn-success">Generate Story</button>
+                            <button id="generateQuestionsBtn" class="btn btn-info">Generate Questions</button>
+                            <button id="clearListBtn" class="btn btn-danger">Clear List</button>
+                        </div>
                     </div>
                     <div class="search-box">
                         <input type="text" id="learningSearch" placeholder="Search learning words...">
@@ -624,16 +666,17 @@
             
             <div class="grid">
                 <div class="card">
-                    <h3>Add New Special Word</h3>
+                    <h3>Add New Special Word(s)</h3>
                     <div class="form-group">
-                        <label for="newSpecialWord">Word</label>
-                        <input type="text" id="newSpecialWord" placeholder="Enter special word">
+                        <label for="newSpecialWord">Word(s)</label>
+                        <textarea id="newSpecialWord" placeholder="Enter special word(s) - separate multiple words with commas, spaces, or new lines. You can add words that already exist in the main 2800-word list if needed." rows="3"></textarea>
                     </div>
                     <div class="form-group">
                         <label for="specialWordNotes">Notes (Optional)</label>
-                        <textarea id="specialWordNotes" placeholder="Additional information about this word"></textarea>
+                        <textarea id="specialWordNotes" placeholder="Additional information about these words"></textarea>
                     </div>
-                    <button id="addSpecialWord" class="btn btn-primary">Add Special Word</button>
+                    <button id="addSpecialWord" class="btn btn-primary">Add Special Word(s)</button>
+                    <p><small>If a word already exists in the main 2800-word list, you'll be notified of its step and level and given the option to add it as a special word anyway.</small></p>
                 </div>
                 
                 <div class="card">
@@ -711,6 +754,11 @@
         const rewardsListContainer = document.getElementById('rewardsList');
         const rewardSearchInput = document.getElementById('rewardSearch');
         const copyListBtn = document.getElementById('copyListBtn');
+        const generateStoryBtn = document.getElementById('generateStoryBtn');
+        const generateQuestionsBtn = document.getElementById('generateQuestionsBtn');
+        const clearListBtn = document.getElementById('clearListBtn');
+        const studentButtonsContainer = document.getElementById('studentButtons');
+        const deleteStudentBtn = document.getElementById('deleteStudent');
         
         // Modal elements
         const positionModal = document.getElementById('positionModal');
@@ -743,6 +791,12 @@
             // Populate step/level select
             populateStepLevelSelect();
             
+            // Load student buttons
+            loadStudentButtons();
+            
+            // Hide delete student button initially
+            deleteStudentBtn.style.display = 'none';
+            
             // Debug: Check if modal elements exist
             console.log('Modal elements:');
             console.log('positionModal:', positionModal);
@@ -759,6 +813,10 @@
             addAllWordsBtn.addEventListener('click', addAllWords);
             addSpecialWordBtn.addEventListener('click', addSpecialWord);
             copyListBtn.addEventListener('click', copyLearningListToClipboard);
+            generateStoryBtn.addEventListener('click', generateStory);
+            generateQuestionsBtn.addEventListener('click', generateQuestions);
+            clearListBtn.addEventListener('click', clearLearningList);
+            deleteStudentBtn.addEventListener('click', deleteStudent);
             
             console.log('Adding editPositionBtn event listener');
             editPositionBtn.addEventListener('click', function() {
@@ -833,6 +891,9 @@
             // Update UI with student name
             studentDisplayName.textContent = studentName;
             
+            // Show delete button when a student is selected
+            deleteStudentBtn.style.display = 'inline-block';
+            
             // Load student progress (will initialize to defaults if new student)
             loadStudentProgress();
             
@@ -841,6 +902,58 @@
             // Load data for the student
             console.log('Loading data for student:', studentName);
             loadStudentData();
+            
+            // Update student buttons
+            updateStudentButtons();
+        }
+
+        // Delete current student
+        function deleteStudent() {
+            if (!currentStudent) {
+                showNotification('No student selected', 'error');
+                return;
+            }
+            
+            // Show confirmation dialog
+            if (!confirm(`Are you sure you want to delete student "${currentStudent}" and all associated data? This action cannot be undone.`)) {
+                return;
+            }
+            
+            // Send delete request to backend
+            fetch(`/api/student/${currentStudent}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showNotification(data.error, 'error');
+                    return;
+                }
+                
+                showNotification(data.message, 'success');
+                
+                // Clear student data from UI
+                studentNameInput.value = '';
+                studentDisplayName.textContent = '';
+                currentPosition.textContent = 'Current Position: Step 1, Level 1';
+                learningWordsContainer.innerHTML = '<p>Select a student to view their learning words.</p>';
+                specialWordsContainer.innerHTML = '<p>No special words added yet.</p>';
+                rewardsListContainer.innerHTML = '<p>No rewards earned yet.</p>';
+                
+                // Hide delete button
+                deleteStudentBtn.style.display = 'none';
+                
+                // Clear current student
+                currentStudent = null;
+                localStorage.removeItem('pathwayStudent');
+                
+                // Reload student buttons
+                loadStudentButtons();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Error deleting student', 'error');
+            });
         }
 
         // Copy learning list to clipboard
@@ -871,37 +984,6 @@
                     showNotification('Failed to copy to clipboard', 'error');
                 });
         }
-
-        // Copy learning list to clipboard
-        function copyLearningListToClipboard() {
-            if (!currentStudent) {
-                showNotification('Please set a student first', 'error');
-                return;
-            }
-            
-            if (learningWords.length === 0) {
-                showNotification('No learning words to copy', 'error');
-                return;
-            }
-            
-            // Create a list of words, one per line
-            const wordsList = learningWords
-                .filter(word => word.status === 'learning') // Only copy learning words, not mastered ones
-                .map(word => word.word)
-                .join('\n');
-            
-            // Copy to clipboard
-            navigator.clipboard.writeText(wordsList)
-                .then(() => {
-                    showNotification('Learning list copied to clipboard!', 'success');
-                })
-                .catch(err => {
-                    console.error('Failed to copy: ', err);
-                    showNotification('Failed to copy to clipboard', 'error');
-                });
-        }
-
-        // Load student progress (step and level)
         function loadStudentProgress() {
             if (!currentStudent) return;
             
@@ -1008,6 +1090,53 @@
             loadLearningWords();
             loadStudentSpecialWords();
             loadRewards();
+            updateStudentButtons();
+        }
+
+        // Load list of students and create buttons
+        function loadStudentButtons() {
+            fetch('/api/students')
+            .then(response => response.json())
+            .then(data => {
+                renderStudentButtons(data.students);
+            })
+            .catch(error => {
+                console.error('Error loading students:', error);
+            });
+        }
+
+        // Render student buttons
+        function renderStudentButtons(students) {
+            if (students.length === 0) {
+                studentButtonsContainer.innerHTML = '';
+                return;
+            }
+            
+            let html = '<h4>Quick Select Students:</h4>';
+            students.forEach(student => {
+                const isActive = student === currentStudent;
+                html += `<button class="student-button ${isActive ? 'active' : ''}" onclick="selectStudent('${student}')">${student}</button>`;
+            });
+            
+            studentButtonsContainer.innerHTML = html;
+        }
+
+        // Update student buttons to highlight the current student
+        function updateStudentButtons() {
+            const buttons = studentButtonsContainer.querySelectorAll('.student-button');
+            buttons.forEach(button => {
+                if (button.textContent === currentStudent) {
+                    button.classList.add('active');
+                } else {
+                    button.classList.remove('active');
+                }
+            });
+        }
+
+        // Select a student from the buttons
+        function selectStudent(studentName) {
+            studentNameInput.value = studentName;
+            setStudent();
         }
 
         // Load learning words for current student
@@ -1045,25 +1174,18 @@
                 // Check if it's a special word (indicated by a property or by step/level being null)
                 const isSpecial = word.is_special || word.word_type === 'special' || (!word.step && !word.level);
                 const displayWord = isSpecial ? `${word.word}*` : word.word;
-                const badgeClass = word.status === 'learning' ? 'badge-learning' : 'badge-mastered';
-                const badgeText = word.status === 'learning' ? 'Learning' : 'Mastered';
                 
                 html += `
                     <div class="word-item">
                         <div class="word-info">
                             <strong>${displayWord}</strong>
-                            <div>
+                            <span>
                                 ${isSpecial ? 
                                     '<small>Special Word</small>' : 
-                                    `<small>Step ${word.step}, Level ${word.level}</small>`}
-                            </div>
+                                    `<small>- Step ${word.step}, Level ${word.level}</small>`}
+                            </span>
                         </div>
                         <div class="word-actions">
-                            <span class="badge ${badgeClass}">${badgeText}</span>
-                            ${word.status === 'learning' ? 
-                                `<button class="btn btn-success btn-small" onclick="markAsMastered(${word.id}, ${isSpecial})">Mark Mastered</button>` :
-                                `<button class="btn btn-warning btn-small" onclick="markAsLearning(${word.id}, ${isSpecial})">Mark Learning</button>`
-                            }
                             <button class="btn btn-danger btn-small" onclick="removeWord(${word.id}, ${isSpecial})">Remove</button>
                         </div>
                     </div>
@@ -1448,41 +1570,93 @@
             }
         }
 
-        // Add special word
+        // Add special word(s)
         function addSpecialWord() {
-            const word = newSpecialWordInput.value.trim();
+            const wordsInput = newSpecialWordInput.value.trim();
             const notes = specialWordNotesInput.value.trim();
             
-            if (!word) {
-                showNotification('Please enter a special word', 'error');
+            if (!wordsInput) {
+                showNotification('Please enter at least one special word', 'error');
                 return;
             }
             
-            // Send to the backend
-            fetch(`/api/student/${currentStudent}/special_words`, {
+            // Split input into words using commas, newlines, or multiple spaces as delimiters
+            // Also trim whitespace from each word and filter out empty strings
+            const words = wordsInput.split(/[\s,]+/).map(word => word.trim()).filter(word => word.length > 0);
+            
+            if (words.length === 0) {
+                showNotification('Please enter at least one valid special word', 'error');
+                return;
+            }
+            
+            // Send to the backend using batch endpoint
+            sendAddSpecialWordsRequest(words, notes, false);
+        }
+        
+        // Function to send the request to add special words
+        function sendAddSpecialWordsRequest(words, notes, forceAdd) {
+            fetch(`/api/student/${currentStudent}/special_words/batch`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ word, notes })
+                body: JSON.stringify({ words, notes, force_add: forceAdd })
             })
             .then(response => response.json())
             .then(data => {
-                console.log('Add special word response:', data);
-                if (data.error) {
-                    if (data.step && data.level) {
-                        showNotification(`Word "${word}" already exists in the 2800-word list (Step ${data.step}, Level ${data.level})`, 'error');
-                    } else {
-                        showNotification(data.error, 'error');
+                console.log('Add special words response:', data);
+                
+                // Handle existing words that user might want to force add
+                if (data.results && data.results.existing && data.results.existing.length > 0 && !forceAdd) {
+                    // Show dialog to user asking if they want to force add existing words
+                    const existingWords = data.results.existing;
+                    const wordList = existingWords.map(w => 
+                        `${w.word} (Step ${w.step}, Level ${w.level})`
+                    ).join(', ');
+                    
+                    if (confirm(`The following words already exist in the main 2800-word list:
+${wordList}
+
+Do you want to add them as special words anyway?`)) {
+                        // User wants to force add, send request again with force_add=true
+                        sendAddSpecialWordsRequest(words, notes, true);
+                        return;
                     }
-                    return;
                 }
                 
                 // Clear form
                 newSpecialWordInput.value = '';
                 specialWordNotesInput.value = '';
                 
-                showNotification(data.message, 'success');
+                // Show appropriate notification
+                let message = '';
+                let type = 'info';
+                
+                if (data.results && data.results.added && data.results.added.length > 0) {
+                    message += `Added ${data.results.added.length} special word(s). `;
+                    type = 'success';
+                }
+                
+                if (data.results && data.results.existing && data.results.existing.length > 0) {
+                    const existingWords = data.results.existing.map(w => 
+                        `${w.word} (Step ${w.step}, Level ${w.level})`
+                    ).join(', ');
+                    message += `${data.results.existing.length} word(s) already exist: ${existingWords}. `;
+                }
+                
+                if (data.results && data.results.errors && data.results.errors.length > 0) {
+                    const errorMessages = data.results.errors.map(err => 
+                        `${err.word}: ${err.error}`
+                    ).join(', ');
+                    message += `Errors: ${errorMessages}. `;
+                    if (type === 'success') type = 'info'; else type = 'error';
+                }
+                
+                if (!message) {
+                    message = data.message || 'Completed with no changes';
+                }
+                
+                showNotification(message, type);
                 
                 // Reload special words and learning words
                 loadStudentSpecialWords();
@@ -1490,7 +1664,7 @@
             })
             .catch(error => {
                 console.error('Error:', error);
-                showNotification('Error adding special word', 'error');
+                showNotification('Error adding special words: ' + error.message, 'error');
             });
         }
 
@@ -1691,6 +1865,175 @@
                     notification.style.display = 'none';
                 }, 300);
             }, 3000);
+        }
+
+        // Clear the entire learning list
+        function clearLearningList() {
+            if (!currentStudent) {
+                showNotification('Please set a student first', 'error');
+                return;
+            }
+            
+            if (learningWords.length === 0) {
+                showNotification('Learning list is already empty', 'info');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to clear the entire learning list? This action cannot be undone.')) {
+                return;
+            }
+            
+            // Create arrays of word IDs to delete
+            const regularWordIds = learningWords
+                .filter(word => !word.is_special && !word.word_type)
+                .map(word => word.id);
+                
+            const specialWordIds = learningWords
+                .filter(word => word.is_special || word.word_type === 'special')
+                .map(word => word.id);
+            
+            // Create an array of fetch promises for deleting words
+            const deletePromises = [];
+            
+            // Delete regular words
+            regularWordIds.forEach(wordId => {
+                deletePromises.push(
+                    fetch(`/api/student/${currentStudent}/learning_words/${wordId}`, {
+                        method: 'DELETE'
+                    })
+                );
+            });
+            
+            // Delete special words
+            specialWordIds.forEach(wordId => {
+                deletePromises.push(
+                    fetch(`/api/student/${currentStudent}/learning_special_words/${wordId}`, {
+                        method: 'DELETE'
+                    })
+                );
+            });
+            
+            // Execute all delete requests
+            Promise.all(deletePromises)
+                .then(responses => {
+                    // Check if all requests were successful
+                    const allSuccessful = responses.every(response => response.ok);
+                    if (allSuccessful) {
+                        showNotification('Learning list cleared successfully', 'success');
+                        // Reload learning words
+                        loadLearningWords();
+                    } else {
+                        throw new Error('Some delete requests failed');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error clearing learning list:', error);
+                    showNotification('Error clearing learning list', 'error');
+                });
+        }
+
+        // Generate a story using the learning words
+        function generateStory() {
+            if (!currentStudent) {
+                showNotification('Please set a student first', 'error');
+                return;
+            }
+            
+            if (learningWords.length === 0) {
+                showNotification('No learning words to generate a story with', 'error');
+                return;
+            }
+            
+            // Show loading notification
+            showNotification('Generating story... This may take a moment.', 'info');
+            
+            // Disable the button while generating
+            generateStoryBtn.disabled = true;
+            generateStoryBtn.textContent = 'Generating...';
+            
+            // Send request to backend to generate story
+            fetch(`/api/student/${currentStudent}/generate_story`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Copy story to clipboard
+                navigator.clipboard.writeText(data.story)
+                    .then(() => {
+                        showNotification('Story generated and copied to clipboard!', 'success');
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy story: ', err);
+                        showNotification('Story generated but failed to copy to clipboard. Please copy manually.', 'info');
+                        // Show the story in an alert as a fallback
+                        alert('Story generated:\n\n' + data.story);
+                    });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Error generating story: ' + error.message, 'error');
+            })
+            .finally(() => {
+                // Re-enable the button
+                generateStoryBtn.disabled = false;
+                generateStoryBtn.textContent = 'Generate Story';
+            });
+        }
+
+        // Generate multiple choice questions using the learning words
+        function generateQuestions() {
+            if (!currentStudent) {
+                showNotification('Please set a student first', 'error');
+                return;
+            }
+            
+            if (learningWords.length === 0) {
+                showNotification('No learning words to generate questions with', 'error');
+                return;
+            }
+            
+            // Show loading notification
+            showNotification('Generating questions... This may take a moment.', 'info');
+            
+            // Disable the button while generating
+            generateQuestionsBtn.disabled = true;
+            generateQuestionsBtn.textContent = 'Generating...';
+            
+            // Send request to backend to generate questions
+            fetch(`/api/student/${currentStudent}/generate_questions`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Copy questions to clipboard
+                navigator.clipboard.writeText(data.questions)
+                    .then(() => {
+                        showNotification('Questions generated and copied to clipboard!', 'success');
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy questions: ', err);
+                        showNotification('Questions generated but failed to copy to clipboard. Please copy manually.', 'info');
+                        // Show the questions in an alert as a fallback
+                        alert('Questions generated:\n\n' + data.questions);
+                    });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Error generating questions: ' + error.message, 'error');
+            })
+            .finally(() => {
+                // Re-enable the button
+                generateQuestionsBtn.disabled = false;
+                generateQuestionsBtn.textContent = 'Generate Questions';
+            });
         }
 
         // Make functions available globally for inline event handlers
