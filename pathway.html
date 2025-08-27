@@ -786,6 +786,15 @@
         console.log('Student elements loaded:');
         console.log('editPositionBtn:', editPositionBtn);
 
+        // Global variables for student data
+        let currentStudent = null;
+        let currentStep = 1;
+        let currentLevel = 1;
+        let learningWords = [];
+        let availableWords = [];
+        let specialWords = [];
+        let rewards = [];
+
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
             // Populate step/level select
@@ -1021,6 +1030,14 @@
             }
         }
 
+        // Initialize a new student with default values
+        function initializeNewStudent() {
+            console.log('Initializing new student with defaults');
+            currentStep = 1;
+            currentLevel = 1;
+            updatePositionDisplay();
+        }
+
         // Open the position modal
         function openPositionModal() {
             console.log('openPositionModal called');
@@ -1173,6 +1190,8 @@
             words.forEach(word => {
                 // Check if it's a special word (indicated by a property or by step/level being null)
                 const isSpecial = word.is_special || word.word_type === 'special' || (!word.step && !word.level);
+                // For special words, we need to use the special_word_id for the API call
+                const wordId = isSpecial ? word.special_word_id : word.id;
                 const displayWord = isSpecial ? `${word.word}*` : word.word;
                 
                 html += `
@@ -1186,7 +1205,7 @@
                             </span>
                         </div>
                         <div class="word-actions">
-                            <button class="btn btn-danger btn-small" onclick="removeWord(${word.id}, ${isSpecial})">Remove</button>
+                            <button class="btn btn-danger btn-small" onclick="removeWord(${wordId}, ${isSpecial})">Remove</button>
                         </div>
                     </div>
                 `;
@@ -1230,8 +1249,6 @@
         function loadWords() {
             console.log('loadWords called');
             console.log('Current student:', currentStudent);
-            console.log('Current step:', currentStep);
-            console.log('Current level:', currentLevel);
             
             // Check if student is set
             if (!currentStudent) {
@@ -1239,14 +1256,10 @@
                 return;
             }
             
-            // Use the student's current step and level, not the dropdown value
-            const step = currentStep;
-            const level = currentLevel;
+            // Use the selected step and level from the dropdown
+            const [step, level] = stepLevelSelect.value.split('-').map(Number);
             
             console.log('Loading words for step:', step, 'level:', level);
-            
-            // Update the dropdown to match the current position
-            stepLevelSelect.value = `${step}-${level}`;
             
             // Fetch from the backend
             fetch(`/api/words/step/${step}/level/${level}`)
